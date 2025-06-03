@@ -38,7 +38,7 @@
         
         <el-form-item>
           <el-checkbox v-model="loginForm.rememberMe">
-            记住我（一年免登录）
+            记住我
           </el-checkbox>
         </el-form-item>
         
