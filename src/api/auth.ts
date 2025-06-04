@@ -2,8 +2,9 @@ import api from './index'
 import type { LoginForm, AdminUser } from '@/types'
 
 // 登录
-export const login = (data: LoginForm): Promise<AdminUser> => {
-  return api.post('/auth/login', data)
+export const login = (data: LoginForm): Promise<string> => {
+  const { username, password } = data
+  return api.post('/auth/login', { username, password })
 }
 
 // 获取当前用户信息

@@ -36,11 +36,7 @@
           />
         </el-form-item>
         
-        <el-form-item>
-          <el-checkbox v-model="loginForm.rememberMe">
-            记住我
-          </el-checkbox>
-        </el-form-item>
+
         
         <el-form-item>
           <el-button
@@ -79,8 +75,7 @@ const loading = ref(false)
 // 登录表单数据
 const loginForm = reactive<LoginForm>({
   username: '',
-  password: '',
-  rememberMe: false
+  password: ''
 })
 
 // 表单验证规则
@@ -104,6 +99,7 @@ const handleLogin = async () => {
     if (!valid) return
     
     loading.value = true
+    
     await authStore.login(loginForm)
     
     // 登录成功后跳转

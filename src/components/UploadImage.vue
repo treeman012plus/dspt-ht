@@ -76,7 +76,7 @@ const maxSizeMB = computed(() => props.maxSize)
 const uploadUrl = computed(() => '/api/upload/image')
 const uploadHeaders = computed(() => {
   const token = localStorage.getItem('admin_token')
-  return token ? { Authorization: `Bearer ${token}` } : {}
+  return token ? { Authorization: token } : {}
 })
 
 // 上传前验证
@@ -100,9 +100,11 @@ const beforeUpload = (file: File) => {
 // 上传成功
 const handleSuccess = (response: any) => {
   if (response.code === 200) {
-    imageUrl.value = response.data.url
-    emit('update:modelValue', response.data.url)
-    emit('upload-success', response.data.url)
+    // API返回的data字段直接是图片URL字符串
+    const imageUrlValue = response.data.trim()
+    imageUrl.value = imageUrlValue
+    emit('update:modelValue', imageUrlValue)
+    emit('upload-success', imageUrlValue)
     ElMessage.success('图片上传成功')
   } else {
     ElMessage.error(response.message || '上传失败')

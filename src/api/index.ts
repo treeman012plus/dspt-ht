@@ -9,7 +9,21 @@ const api = axios.create({
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json'
-  }
+  },
+  // 处理Long类型精度问题
+  transformResponse: [
+    function (data) {
+      if (typeof data === 'string') {
+        try {
+          // 使用正则表达式将大整数转换为字符串，避免精度丢失
+          return JSON.parse(data.replace(/:\s*(\d{16,})/g, ': "$1"'))
+        } catch (e) {
+          return data
+        }
+      }
+      return data
+    }
+  ]
 })
 
 // 请求拦截器
@@ -18,7 +32,7 @@ api.interceptors.request.use(
     // 添加token
     const token = localStorage.getItem('admin_token')
     if (token) {
-      config.headers.Authorization = `Bearer ${token}`
+      config.headers.Authorization = token
     }
     return config
   },
@@ -37,8 +51,12 @@ api.interceptors.response.use(
     } else if (code === 401) {
       // 未授权，清除token并跳转登录
       localStorage.removeItem('admin_token')
-      window.location.href = '/login'
-      ElMessage.error('登录已过期，请重新登录')
+      localStorage.removeItem('token_expire')
+      // 避免在登录页面重复跳转
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login'
+        ElMessage.error('登录已过期，请重新登录')
+      }
       return Promise.reject(new Error(message))
     } else {
       ElMessage.error(message || '请求失败')
@@ -48,8 +66,12 @@ api.interceptors.response.use(
   (error: AxiosError) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('admin_token')
-      window.location.href = '/login'
-      ElMessage.error('登录已过期，请重新登录')
+      localStorage.removeItem('token_expire')
+      // 避免在登录页面重复跳转
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login'
+        ElMessage.error('登录已过期，请重新登录')
+      }
     } else {
       ElMessage.error(error.message || '网络错误')
     }

@@ -18,10 +18,10 @@
     <!-- 搜索和筛选 -->
     <el-card class="search-card">
       <el-form :model="searchForm" inline>
-        <el-form-item label="商品搜索">
+        <el-form-item label="商品名称">
           <el-input
             v-model="searchForm.keyword"
-            placeholder="请输入商品名称或ID"
+            placeholder="请输入商品名称"
             clearable
             style="width: 200px"
             @keyup.enter="handleSearch"
@@ -30,6 +30,16 @@
               <el-icon><Search /></el-icon>
             </template>
           </el-input>
+        </el-form-item>
+        
+        <el-form-item label="商品ID">
+          <el-input
+            v-model="searchForm.productId"
+            placeholder="请输入商品ID"
+            clearable
+            style="width: 150px"
+            @keyup.enter="handleSearch"
+          />
         </el-form-item>
         
         <el-form-item label="商品分类">
@@ -48,16 +58,24 @@
           </el-select>
         </el-form-item>
         
-        <el-form-item label="上架状态">
-          <el-select
-            v-model="searchForm.status"
-            placeholder="请选择状态"
-            clearable
-            style="width: 120px"
-          >
-            <el-option label="已上架" value="online" />
-            <el-option label="已下架" value="offline" />
-          </el-select>
+        <el-form-item label="价格区间">
+          <div class="price-range">
+            <el-input
+              v-model="searchForm.minPrice"
+              placeholder="最低价"
+              type="number"
+              style="width: 100px"
+              @keyup.enter="handleSearch"
+            />
+            <span class="price-separator">-</span>
+            <el-input
+              v-model="searchForm.maxPrice"
+              placeholder="最高价"
+              type="number"
+              style="width: 100px"
+              @keyup.enter="handleSearch"
+            />
+          </div>
         </el-form-item>
         
         <el-form-item>
@@ -83,8 +101,6 @@
       >
         <template #default>
           <div class="batch-buttons">
-            <el-button size="small" @click="handleBatchOnline">批量上架</el-button>
-            <el-button size="small" @click="handleBatchOffline">批量下架</el-button>
             <el-button size="small" type="danger" @click="handleBatchDelete">批量删除</el-button>
           </div>
         </template>
@@ -135,31 +151,16 @@
         
         <el-table-column prop="stock" label="库存" width="80" />
         
-        <el-table-column label="状态" width="100">
-          <template #default="{ row }">
-            <el-tag :type="row.status === 'online' ? 'success' : 'danger'">
-              {{ row.status === 'online' ? '已上架' : '已下架' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        
         <el-table-column label="创建时间" width="160">
           <template #default="{ row }">
             {{ formatDate(row.createTime) }}
           </template>
         </el-table-column>
         
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
             <el-button size="small" @click="handleEdit(row.id)">
               编辑
-            </el-button>
-            <el-button
-              size="small"
-              :type="row.status === 'online' ? 'warning' : 'success'"
-              @click="handleToggleStatus(row)"
-            >
-              {{ row.status === 'online' ? '下架' : '上架' }}
             </el-button>
             <el-button
               size="small"
@@ -248,8 +249,10 @@ const pagination = reactive({
 // 搜索表单
 const searchForm = reactive({
   keyword: '',
+  productId: '',
   categoryId: '',
-  status: ''
+  minPrice: '',
+  maxPrice: ''
 })
 
 // 获取商品列表
@@ -257,11 +260,26 @@ const fetchProducts = async () => {
   try {
     loading.value = true
     const params = {
-      ...pagination,
+      current: pagination.page,
+      size: pagination.pageSize,
       ...searchForm
     }
     const response = await productApi.getProducts(params)
-    products.value = response.data
+    // 处理后端分页响应格式：{records: [], total: 4}
+    const rawProducts = response.records || response.data || []
+    // 映射后端字段到前端期望的字段
+    products.value = rawProducts.map((item: any) => ({
+      id: item.goodId || item.id,
+      title: item.goodName || item.title,
+      image: item.coverUrl || item.image,
+      categoryId: item.categoryId,
+      categoryName: item.categoryName || '',
+      price: item.price,
+      stock: item.stock,
+      description: item.description,
+      createTime: item.createdAt || item.createTime,
+      updateTime: item.updatedAt || item.updateTime
+    }))
     total.value = response.total
   } catch (error) {
     console.error('获取商品列表失败:', error)
@@ -275,7 +293,11 @@ const fetchProducts = async () => {
 const fetchCategories = async () => {
   try {
     const response = await productApi.getCategories()
-    categories.value = response
+    // 将API返回的categoryId和categoryName映射为id和name
+    categories.value = response.map(category => ({
+      id: category.categoryId,
+      name: category.categoryName
+    }))
   } catch (error) {
     console.error('获取分类失败:', error)
   }
@@ -291,8 +313,10 @@ const handleSearch = () => {
 const handleReset = () => {
   Object.assign(searchForm, {
     keyword: '',
+    productId: '',
     categoryId: '',
-    status: ''
+    minPrice: '',
+    maxPrice: ''
   })
   pagination.page = 1
   fetchProducts()
@@ -313,28 +337,7 @@ const handleEdit = (id: string) => {
   router.push(`/products/edit/${id}`)
 }
 
-// 切换商品状态
-const handleToggleStatus = async (product: Product) => {
-  try {
-    const newStatus = product.status === 'online' ? 'offline' : 'online'
-    const action = newStatus === 'online' ? '上架' : '下架'
-    
-    await ElMessageBox.confirm(`确定要${action}商品「${product.title}」吗？`, '提示', {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
-      type: 'warning'
-    })
-    
-    await productApi.updateProduct(product.id, { status: newStatus })
-    ElMessage.success(`${action}成功`)
-    fetchProducts()
-  } catch (error) {
-    if (error !== 'cancel') {
-      console.error('更新商品状态失败:', error)
-      ElMessage.error('操作失败')
-    }
-  }
-}
+
 
 // 删除商品
 const handleDelete = async (product: Product) => {
@@ -356,33 +359,7 @@ const handleDelete = async (product: Product) => {
   }
 }
 
-// 批量上架
-const handleBatchOnline = async () => {
-  try {
-    const ids = selectedProducts.value.map(item => item.id)
-    await productApi.batchUpdateProductStatus(ids, 'online')
-    ElMessage.success('批量上架成功')
-    fetchProducts()
-    selectedProducts.value = []
-  } catch (error) {
-    console.error('批量上架失败:', error)
-    ElMessage.error('批量上架失败')
-  }
-}
 
-// 批量下架
-const handleBatchOffline = async () => {
-  try {
-    const ids = selectedProducts.value.map(item => item.id)
-    await productApi.batchUpdateProductStatus(ids, 'offline')
-    ElMessage.success('批量下架成功')
-    fetchProducts()
-    selectedProducts.value = []
-  } catch (error) {
-    console.error('批量下架失败:', error)
-    ElMessage.error('批量下架失败')
-  }
-}
 
 // 批量删除
 const handleBatchDelete = async () => {
@@ -506,6 +483,17 @@ onMounted(() => {
 
 .import-actions {
   margin: 20px 0;
+}
+
+.price-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.price-separator {
+  color: #909399;
+  font-size: 14px;
 }
 
 /* 响应式设计 */

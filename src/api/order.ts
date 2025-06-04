@@ -6,7 +6,9 @@ export const getOrders = (params: PaginationParams & {
   orderNo?: string
   userId?: string
   status?: string
-}): Promise<PaginationResponse<Order>> => {
+  startDate?: string
+  endDate?: string
+}): Promise<any> => {
   return api.get('/orders', { params })
 }
 

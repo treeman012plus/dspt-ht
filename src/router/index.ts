@@ -70,6 +70,24 @@ const router = createRouter({
           name: 'user-detail',
           component: () => import('../views/UserDetailView.vue'),
           meta: { title: '用户详情', requiresAuth: true }
+        },
+        {
+          path: 'coupons',
+          name: 'coupons',
+          component: () => import('../views/CouponListView.vue'),
+          meta: { title: '优惠券列表', requiresAuth: true }
+        },
+        {
+          path: 'coupons/add',
+          name: 'coupon-add',
+          component: () => import('../views/CouponFormView.vue'),
+          meta: { title: '新增优惠券', requiresAuth: true }
+        },
+        {
+          path: 'coupons/edit/:id',
+          name: 'coupon-edit',
+          component: () => import('../views/CouponFormView.vue'),
+          meta: { title: '编辑优惠券', requiresAuth: true }
         }
       ]
     },
@@ -83,7 +101,7 @@ const router = createRouter({
 })
 
 // 路由守卫
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore()
   
   // 检查是否需要认证
@@ -94,9 +112,12 @@ router.beforeEach((to, from, next) => {
       return
     }
     
-    // 检查token是否过期
+    // 检查token是否过期（仅检查，不自动登出）
     if (!authStore.checkTokenExpire()) {
-      next({ name: 'login' })
+      // token过期，清除本地数据并跳转登录
+      authStore.clearToken()
+      ElMessage.warning('登录已过期，请重新登录')
+      next({ name: 'login', query: { redirect: to.fullPath } })
       return
     }
   }

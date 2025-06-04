@@ -4,13 +4,13 @@
     <div class="page-header">
       <h2>订单管理</h2>
     </div>
-    
+
     <!-- 搜索筛选区域 -->
     <el-card class="search-card">
       <el-form :model="searchForm" inline>
         <el-form-item label="订单号">
           <el-input
-            v-model="searchForm.orderNo"
+            v-model="searchForm.orderId"
             placeholder="请输入订单号"
             clearable
             style="width: 200px"
@@ -34,11 +34,11 @@
             style="width: 150px"
           >
             <el-option label="全部" value="" />
-            <el-option label="待付款" value="pending" />
-            <el-option label="待发货" value="paid" />
-            <el-option label="已发货" value="shipped" />
-            <el-option label="已完成" value="completed" />
-            <el-option label="已取消" value="cancelled" />
+            <el-option label="待付款" value="0" />
+            <el-option label="待发货" value="1" />
+            <el-option label="已发货" value="2" />
+            <el-option label="已完成" value="3" />
+            <el-option label="已取消" value="4" />
           </el-select>
         </el-form-item>
         
@@ -67,25 +67,23 @@
         </el-form-item>
       </el-form>
     </el-card>
-    
+
     <!-- 订单列表 -->
     <el-card>
-      <TablePagination
-        :data="orders"
-        :loading="loading"
-        :total="pagination.total"
-        :page="pagination.current"
-        :page-size="pagination.size"
-        @page-change="handlePageChange"
-        @size-change="handleSizeChange"
+      <el-table 
+        :data="orderList" 
+        :loading="loading" 
+        border
+        style="width: 100%"
+        v-loading="loading"
       >
-        <el-table-column prop="orderNo" label="订单号" width="180" />
+        <el-table-column prop="orderId" label="订单号" width="200" />
         
         <el-table-column prop="userId" label="用户ID" width="120" />
         
         <el-table-column prop="totalAmount" label="订单金额" width="120">
           <template #default="{ row }">
-            <span class="amount">¥{{ formatPrice(row.totalAmount) }}</span>
+            <span class="amount">{{ formatPrice(row.totalAmount) }}</span>
           </template>
         </el-table-column>
         
@@ -97,15 +95,33 @@
           </template>
         </el-table-column>
         
-        <el-table-column prop="createdAt" label="创建时间" width="180">
+        <el-table-column prop="orderTime" label="创建时间" width="180">
           <template #default="{ row }">
-            {{ formatDate(row.createdAt) }}
+            {{ formatDate(row.orderTime) }}
           </template>
         </el-table-column>
         
-        <el-table-column prop="updatedAt" label="更新时间" width="180">
+        <el-table-column label="支付方式" width="120">
           <template #default="{ row }">
-            {{ formatDate(row.updatedAt) }}
+            {{ getPaymentMethodText(row.paymentMethod) }}
+          </template>
+        </el-table-column>
+        
+        <el-table-column label="收货人" width="120">
+          <template #default="{ row }">
+            {{ row.shippingAddress?.receiver || '-' }}
+          </template>
+        </el-table-column>
+        
+        <el-table-column label="收货地址" width="250" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span v-if="row.shippingAddress">
+              {{ row.shippingAddress.provinceName }}
+              {{ row.shippingAddress.cityName }}
+              {{ row.shippingAddress.districtName }}
+              {{ row.shippingAddress.detailAddress }}
+            </span>
+            <span v-else>-</span>
           </template>
         </el-table-column>
         
@@ -121,7 +137,7 @@
             </el-button>
             
             <el-button
-              v-if="row.status === 'paid'"
+              v-if="row.status === 1"
               type="success"
               size="small"
               link
@@ -131,7 +147,7 @@
             </el-button>
             
             <el-button
-              v-if="['pending', 'paid'].includes(row.status)"
+              v-if="[0, 1].includes(row.status)"
               type="danger"
               size="small"
               link
@@ -141,9 +157,22 @@
             </el-button>
           </template>
         </el-table-column>
-      </TablePagination>
+      </el-table>
+      
+      <!-- 分页组件 -->
+      <div class="pagination-wrapper">
+        <el-pagination
+          v-model:current-page="currentPage"
+          v-model:page-size="pageSize"
+          :page-sizes="[10, 20, 50, 100]"
+          :total="totalCount"
+          layout="total, sizes, prev, pager, next, jumper"
+          @size-change="handleSizeChange"
+          @current-change="handleCurrentChange"
+        />
+      </div>
     </el-card>
-    
+
     <!-- 发货对话框 -->
     <el-dialog
       v-model="shipDialogVisible"
@@ -158,7 +187,7 @@
         label-width="100px"
       >
         <el-form-item label="订单号">
-          <el-input :value="currentOrder?.orderNo" disabled />
+          <el-input :value="currentOrder?.orderId" disabled />
         </el-form-item>
         
         <el-form-item label="物流公司" prop="expressCompany">
@@ -211,34 +240,31 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
-import TablePagination from '@/components/TablePagination.vue'
+import { Search, Refresh } from '@element-plus/icons-vue'
 import * as orderApi from '@/api/order'
 import { formatDate, formatPrice } from '@/utils'
-import type { Order, PaginationParams } from '@/types'
+import type { Order } from '@/types'
 
 const router = useRouter()
-const shipFormRef = ref<FormInstance>()
 
-// 数据状态
-const orders = ref<Order[]>([])
+// 响应式数据
+const orderList = ref<Order[]>([])
 const loading = ref(false)
 const shipDialogVisible = ref(false)
 const shipping = ref(false)
 const currentOrder = ref<Order | null>(null)
 
+// 分页数据
+const currentPage = ref(1)
+const pageSize = ref(20)
+const totalCount = ref(0)
+
 // 搜索表单
 const searchForm = reactive({
-  orderNo: '',
+  orderId: '',
   userId: '',
   status: '',
   dateRange: [] as string[]
-})
-
-// 分页参数
-const pagination = reactive({
-  current: 1,
-  size: 20,
-  total: 0
 })
 
 // 发货表单
@@ -248,6 +274,8 @@ const shipForm = reactive({
   remark: ''
 })
 
+const shipFormRef = ref<FormInstance>()
+
 // 发货表单验证规则
 const shipRules: FormRules = {
   expressCompany: [
@@ -255,65 +283,125 @@ const shipRules: FormRules = {
   ],
   trackingNumber: [
     { required: true, message: '请输入快递单号', trigger: 'blur' },
-    { min: 8, max: 30, message: '快递单号长度在 8 到 30 个字符', trigger: 'blur' }
+    { min: 5, max: 30, message: '快递单号长度在 5 到 30 个字符', trigger: 'blur' }
   ]
 }
 
 // 获取订单状态类型
-const getStatusType = (status: string) => {
-  const typeMap: Record<string, string> = {
-    pending: 'warning',
-    paid: 'info',
-    shipped: 'primary',
-    completed: 'success',
-    cancelled: 'danger'
+const getStatusType = (status: number) => {
+  const typeMap: Record<number, string> = {
+    0: 'warning',  // 待付款
+    1: 'info',     // 待发货
+    2: 'primary',  // 已发货
+    3: 'success',  // 已完成
+    4: 'danger',   // 已取消
+    5: 'warning'   // 已退款
   }
   return typeMap[status] || 'info'
 }
 
 // 获取订单状态文本
-const getStatusText = (status: string) => {
-  const textMap: Record<string, string> = {
-    pending: '待付款',
-    paid: '待发货',
-    shipped: '已发货',
-    completed: '已完成',
-    cancelled: '已取消'
+const getStatusText = (status: number) => {
+  const textMap: Record<number, string> = {
+    0: '待付款',
+    1: '待发货',
+    2: '已发货',
+    3: '已完成',
+    4: '已取消',
+    5: '已退款'
   }
-  return textMap[status] || status
+  return textMap[status] || '未知状态'
+}
+
+// 获取支付方式文本
+const getPaymentMethodText = (paymentMethod: string | null) => {
+  if (!paymentMethod) return '未设置'
+  const methodMap: Record<string, string> = {
+    'alipay': '支付宝',
+    'wechat': '微信支付',
+    'bank': '银行卡',
+    'cash': '现金'
+  }
+  return methodMap[paymentMethod] || paymentMethod
 }
 
 // 获取订单列表
 const fetchOrders = async () => {
   try {
     loading.value = true
+    console.log('开始获取订单列表，参数：', {
+      page: currentPage.value,
+      pageSize: pageSize.value,
+      ...searchForm
+    })
     
-    const params: PaginationParams & {
-      orderNo?: string
-      userId?: string
-      status?: string
-      startDate?: string
-      endDate?: string
-    } = {
-      page: pagination.current,
-      pageSize: pagination.size
+    const params: any = {
+      page: currentPage.value,
+      pageSize: pageSize.value
     }
     
     // 添加搜索条件
-    if (searchForm.orderNo) params.orderNo = searchForm.orderNo
-    if (searchForm.userId) params.userId = searchForm.userId
-    if (searchForm.status) params.status = searchForm.status
+    if (searchForm.orderId) {
+      params.orderId = searchForm.orderId
+    }
+    if (searchForm.userId) {
+      params.userId = searchForm.userId
+    }
+    if (searchForm.status !== '') {
+      params.status = searchForm.status
+    }
     if (searchForm.dateRange && searchForm.dateRange.length === 2) {
       params.startDate = searchForm.dateRange[0]
       params.endDate = searchForm.dateRange[1]
     }
     
     const response = await orderApi.getOrders(params)
-    orders.value = response.data
-    pagination.total = response.total
+    console.log('API响应：', response)
+    console.log('response类型：', typeof response)
+    console.log('response.data：', response?.data)
+    
+    // 处理API响应数据
+    let data = null
+    if (response?.data) {
+      data = response.data
+    } else if (response?.records) {
+      // 直接返回分页数据的情况
+      data = response
+    } else if (Array.isArray(response)) {
+      // 直接返回数组的情况
+      data = response
+    } else {
+      console.warn('无法识别的响应格式：', response)
+      orderList.value = []
+      totalCount.value = 0
+      return
+    }
+    
+    console.log('处理后的data：', data)
+    
+    // 处理分页数据结构
+    if (data.records && Array.isArray(data.records)) {
+      // 标准分页格式
+      orderList.value = [...data.records]
+      totalCount.value = data.total || data.totalCount || data.records.length
+      console.log('使用标准分页格式，订单数量：', orderList.value.length, '总数：', totalCount.value)
+    } else if (Array.isArray(data)) {
+      // 直接返回数组
+      orderList.value = [...data]
+      totalCount.value = data.length
+      console.log('使用数组格式，订单数量：', orderList.value.length)
+    } else {
+      console.warn('未知的数据格式：', data)
+      orderList.value = []
+      totalCount.value = 0
+    }
+    
+    console.log('最终订单列表：', orderList.value)
   } catch (error) {
-    console.error('获取订单列表失败:', error)
+    console.error('获取订单列表失败：', error)
     ElMessage.error('获取订单列表失败')
+    orderList.value = []
+    totalCount.value = 0
   } finally {
     loading.value = false
   }
@@ -321,41 +409,103 @@ const fetchOrders = async () => {
 
 // 搜索
 const handleSearch = () => {
-  pagination.current = 1
+  console.log('执行搜索，搜索条件：', searchForm)
+  currentPage.value = 1
   fetchOrders()
 }
 
 // 重置搜索
 const handleReset = () => {
+  console.log('重置搜索条件')
   Object.assign(searchForm, {
-    orderNo: '',
+    orderId: '',
     userId: '',
     status: '',
     dateRange: []
   })
-  pagination.current = 1
+  currentPage.value = 1
   fetchOrders()
 }
 
 // 分页变化
-const handlePageChange = (page: number) => {
-  pagination.current = page
+const handleCurrentChange = (page: number) => {
+  console.log('页码变化：', page)
+  currentPage.value = page
   fetchOrders()
 }
 
 const handleSizeChange = (size: number) => {
-  pagination.size = size
-  pagination.current = 1
+  console.log('页面大小变化：', size)
+  pageSize.value = size
+  currentPage.value = 1
   fetchOrders()
 }
 
-// 查看订单详情
+// 查看详情
 const handleViewDetail = (order: Order) => {
-  router.push(`/orders/${order.id}`)
+  console.log('查看订单详情：', order.orderId)
+  console.log('传递的订单数据：', order)
+  console.log('订单数据中的关键字段：', {
+    userId: order.userId,
+    paymentMethod: order.paymentMethod,
+    shippingAddress: order.shippingAddress,
+    hasUserId: 'userId' in order,
+    hasPaymentMethod: 'paymentMethod' in order,
+    hasShippingAddress: 'shippingAddress' in order
+  })
+  
+  // 创建一个可序列化的订单数据副本，避免DataCloneError
+  const serializableOrderData = {
+    id: order.id,
+    orderId: order.orderId,
+    orderNo: order.orderNo,
+    userId: order.userId,
+    totalAmount: order.totalAmount,
+    status: order.status,
+    paymentMethod: order.paymentMethod,
+    orderTime: order.orderTime,
+    createdAt: order.createdAt,
+    paidAt: order.paidAt,
+    shippedAt: order.shippedAt,
+    shippingAddress: order.shippingAddress ? {
+      receiver: order.shippingAddress.receiver,
+      name: order.shippingAddress.name,
+      phone: order.shippingAddress.phone,
+      provinceName: order.shippingAddress.provinceName,
+      cityName: order.shippingAddress.cityName,
+      districtName: order.shippingAddress.districtName,
+      detailAddress: order.shippingAddress.detailAddress,
+      address: order.shippingAddress.address
+    } : null,
+    items: order.items ? order.items.map(item => ({
+      itemId: item.itemId,
+      productId: item.good?.goodId,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      subtotal: item.subtotal,
+      good: item.good ? {
+        goodId: item.good.goodId,
+        goodName: item.good.goodName,
+        coverUrl: item.good.coverUrl
+      } : null
+    })) : [],
+    shipping: order.shipping,
+    remarks: order.remarks
+  }
+  
+  console.log('补充后的订单数据：', serializableOrderData)
+  
+  // 通过路由导航到详情页
+  router.push(`/orders/${order.orderId}`).then(() => {
+    // 导航成功后，将订单数据存储到history.state中
+    history.replaceState({ ...history.state, orderData: serializableOrderData }, '')
+    console.log('已将订单数据存储到history.state:', serializableOrderData)
+  })
 }
 
 // 发货
 const handleShip = (order: Order) => {
+  console.log('发货订单：', order.orderId)
   currentOrder.value = order
   shipDialogVisible.value = true
 }
@@ -365,12 +515,10 @@ const handleConfirmShip = async () => {
   if (!shipFormRef.value || !currentOrder.value) return
   
   try {
-    const valid = await shipFormRef.value.validate()
-    if (!valid) return
-    
+    await shipFormRef.value.validate()
     shipping.value = true
     
-    await orderApi.shipOrder(currentOrder.value.id, {
+    await orderApi.shipOrder(currentOrder.value.orderId, {
       expressCompany: shipForm.expressCompany,
       trackingNumber: shipForm.trackingNumber,
       remark: shipForm.remark
@@ -378,10 +526,13 @@ const handleConfirmShip = async () => {
     
     ElMessage.success('发货成功')
     shipDialogVisible.value = false
+    resetShipForm()
     fetchOrders()
   } catch (error) {
-    console.error('发货失败:', error)
-    ElMessage.error('发货失败')
+    if (error !== 'validation failed') {
+      console.error('发货失败：', error)
+      ElMessage.error('发货失败')
+    }
   } finally {
     shipping.value = false
   }
@@ -391,8 +542,8 @@ const handleConfirmShip = async () => {
 const handleCancel = async (order: Order) => {
   try {
     await ElMessageBox.confirm(
-      `确定要取消订单「${order.orderNo}」吗？`,
-      '提示',
+      `确定要取消订单 ${order.orderId} 吗？`,
+      '确认取消',
       {
         confirmButtonText: '确定',
         cancelButtonText: '取消',
@@ -400,12 +551,12 @@ const handleCancel = async (order: Order) => {
       }
     )
     
-    await orderApi.cancelOrder(order.id, '用户取消')
+    await orderApi.cancelOrder(order.orderId, '管理员取消')
     ElMessage.success('取消成功')
     fetchOrders()
   } catch (error) {
     if (error !== 'cancel') {
-      console.error('取消订单失败:', error)
+      console.error('取消订单失败：', error)
       ElMessage.error('取消失败')
     }
   }
@@ -425,6 +576,7 @@ const resetShipForm = () => {
 }
 
 onMounted(() => {
+  console.log('组件挂载，开始获取订单列表')
   fetchOrders()
 })
 </script>
@@ -445,6 +597,12 @@ onMounted(() => {
 
 .search-card {
   margin-bottom: 20px;
+}
+
+.pagination-wrapper {
+  margin-top: 20px;
+  display: flex;
+  justify-content: center;
 }
 
 .amount {

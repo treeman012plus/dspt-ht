@@ -63,15 +63,18 @@ const pageSize = ref(props.pageSize)
 
 // 监听props变化
 watch(() => props.page, (newPage) => {
+  console.log('TablePagination: page prop changed to', newPage)
   currentPage.value = newPage
-})
+}, { immediate: true })
 
 watch(() => props.pageSize, (newPageSize) => {
+  console.log('TablePagination: pageSize prop changed to', newPageSize)
   pageSize.value = newPageSize
-})
+}, { immediate: true })
 
 // 处理页码变化
 const handleCurrentChange = (page: number) => {
+  console.log('TablePagination: handleCurrentChange called with page', page)
   currentPage.value = page
   emit('update:page', page)
   emit('pagination-change', { page, pageSize: pageSize.value })
@@ -79,6 +82,7 @@ const handleCurrentChange = (page: number) => {
 
 // 处理每页条数变化
 const handleSizeChange = (size: number) => {
+  console.log('TablePagination: handleSizeChange called with size', size)
   pageSize.value = size
   currentPage.value = 1 // 重置到第一页
   emit('update:pageSize', size)

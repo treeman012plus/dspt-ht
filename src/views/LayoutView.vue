@@ -39,6 +39,11 @@
             <el-icon><User /></el-icon>
             <template #title>用户管理</template>
           </el-menu-item>
+          
+          <el-menu-item index="/coupons">
+            <el-icon><Ticket /></el-icon>
+            <template #title>优惠券管理</template>
+          </el-menu-item>
         </el-menu>
       </el-aside>
       
@@ -48,7 +53,7 @@
         <el-header class="header">
           <div class="header-left">
             <el-button
-              type="text"
+              link
               @click="toggleCollapse"
               class="collapse-btn"
             >
@@ -103,6 +108,7 @@
 import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
+import { Odometer, Goods, Document, User, Ticket } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()

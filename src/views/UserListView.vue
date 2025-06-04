@@ -110,12 +110,7 @@
           </template>
         </el-table-column>
         
-        <el-table-column prop="email" label="邮箱" width="200">
-          <template #default="{ row }">
-            <span v-if="row.email">{{ row.email }}</span>
-            <span v-else class="no-data">未绑定</span>
-          </template>
-        </el-table-column>
+
         
         <el-table-column prop="status" label="账号状态" width="100">
           <template #default="{ row }">
@@ -208,16 +203,9 @@ const fetchUsers = async () => {
   try {
     loading.value = true
     
-    const params: PaginationParams & {
-      userId?: string
-      phone?: string
-      nickname?: string
-      status?: string
-      startDate?: string
-      endDate?: string
-    } = {
-      page: pagination.current,
-      pageSize: pagination.size // 将 size 改为 pageSize
+    const params: any = {
+      current: pagination.current, // 后端期望的分页参数
+      size: pagination.size // 后端期望的分页参数
     }
     
     // 添加搜索条件
@@ -231,8 +219,21 @@ const fetchUsers = async () => {
     }
     
     const response = await userApi.getUsers(params)
-    users.value = response.data
+    // 适配后端返回的数据结构：{records: [], total, size, current}
+    const rawUsers = response.records || response.data || []
+    
+    // 转换用户数据格式以匹配前端期望的字段
+    users.value = rawUsers.map((user: any) => ({
+      ...user,
+      avatar: user.avatarUrl || user.avatar, // 映射头像字段
+      status: user.status === 1 ? 'active' : 'disabled', // 转换状态字段
+      createdAt: user.createTime || user.createdAt, // 映射创建时间
+      lastLoginAt: user.latestTime || user.lastLoginAt // 映射最后登录时间
+    }))
+    
     pagination.total = response.total
+    pagination.current = response.current || response.page || pagination.current
+    pagination.size = response.size || response.pageSize || pagination.size
   } catch (error) {
     console.error('获取用户列表失败:', error)
     ElMessage.error('获取用户列表失败')
@@ -293,7 +294,9 @@ const handleToggleStatus = async (user: User) => {
       }
     )
     
-    await userApi.updateUserStatus(user.id, newStatus)
+    // 转换状态值为后端期望的数字格式
+    const statusValue = newStatus === 'active' ? 1 : 0
+    await userApi.updateUserStatus(user.id.toString(), statusValue as any)
     ElMessage.success(`${action}成功`)
     fetchUsers()
   } catch (error) {

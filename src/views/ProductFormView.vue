@@ -74,20 +74,17 @@
               </el-col>
             </el-row>
             
-            <el-form-item label="上架状态" prop="status">
-              <el-radio-group v-model="form.status">
-                <el-radio label="online">立即上架</el-radio>
-                <el-radio label="offline">暂不上架</el-radio>
-              </el-radio-group>
-            </el-form-item>
+
             
             <el-form-item label="商品详情" prop="description">
               <div class="editor-container">
                 <QuillEditor
+                  ref="quillEditor"
                   v-model:content="form.description"
                   content-type="html"
                   :options="editorOptions"
                   style="height: 300px;"
+                  @ready="onEditorReady"
                 />
               </div>
             </el-form-item>
@@ -142,6 +139,9 @@ const formRef = ref<FormInstance>()
 const saving = ref(false)
 const categories = ref<ProductCategory[]>([])
 
+// Quill编辑器实例引用
+const quillEditor = ref<any>(null)
+
 // Quill编辑器配置
 const editorOptions = {
   theme: 'snow',
@@ -166,6 +166,141 @@ const editorOptions = {
   placeholder: '请输入商品详情...'
 }
 
+// 自定义图片上传处理器
+const imageHandler = () => {
+  const input = document.createElement('input')
+  input.setAttribute('type', 'file')
+  input.setAttribute('accept', 'image/*')
+  input.click()
+  
+  input.onchange = async () => {
+    const file = input.files?.[0]
+    if (!file) return
+    
+    // 验证文件类型
+    if (!file.type.startsWith('image/')) {
+      ElMessage.error('只能上传图片文件！')
+      return
+    }
+    
+    // 验证文件大小（5MB）
+    const maxSize = 5 * 1024 * 1024
+    if (file.size > maxSize) {
+      ElMessage.error('图片大小不能超过5MB！')
+      return
+    }
+    
+    try {
+      // 显示上传进度
+      const loadingMessage = ElMessage({
+        message: '图片上传中...',
+        type: 'info',
+        duration: 0
+      })
+      
+      // 调用图片上传API
+      const response = await productApi.uploadImage(file)
+      loadingMessage.close()
+      
+      // 获取编辑器实例
+      const editor = quillEditor.value?.getQuill()
+      if (!editor) return
+      
+      // 获取当前光标位置
+      const range = editor.getSelection()
+      const index = range ? range.index : editor.getLength()
+      
+      // 插入图片
+      editor.insertEmbed(index, 'image', response)
+      
+      // 移动光标到图片后面
+      editor.setSelection(index + 1)
+      
+      ElMessage.success('图片上传成功')
+    } catch (error) {
+      console.error('图片上传失败:', error)
+      ElMessage.error('图片上传失败，请重试')
+    }
+  }
+}
+
+// 编辑器就绪回调
+const onEditorReady = (quill: any) => {
+  // 自定义图片上传处理器
+  const toolbar = quill.getModule('toolbar')
+  toolbar.addHandler('image', imageHandler)
+}
+
+// 处理富文本内容中的base64图片
+const processRichTextImages = async (content: string): Promise<string> => {
+  if (!content) return content
+  
+  // 匹配base64图片的正则表达式
+  const base64ImageRegex = /<img[^>]+src="data:image\/[^;]+;base64,[^"]+"[^>]*>/g
+  const base64Images = content.match(base64ImageRegex)
+  
+  if (!base64Images || base64Images.length === 0) {
+    return content
+  }
+  
+  let processedContent = content
+  
+  // 显示处理进度
+  const loadingMessage = ElMessage({
+    message: `正在处理 ${base64Images.length} 张图片...`,
+    type: 'info',
+    duration: 0
+  })
+  
+  try {
+    // 处理每个base64图片
+    for (let i = 0; i < base64Images.length; i++) {
+      const imgTag = base64Images[i]
+      
+      try {
+        // 提取base64数据
+        const srcMatch = imgTag.match(/src="(data:image\/[^;]+;base64,[^"]+)"/)
+        if (!srcMatch) continue
+        
+        const base64Data = srcMatch[1]
+        
+        // 将base64转换为File对象
+        const response = await fetch(base64Data)
+        const blob = await response.blob()
+        const file = new File([blob], `image_${i + 1}.png`, { type: blob.type })
+        
+        // 上传图片
+        const uploadResponse = await productApi.uploadImage(file)
+        
+        // 替换base64图片为URL
+        const newImgTag = imgTag.replace(base64Data, uploadResponse.url)
+        processedContent = processedContent.replace(imgTag, newImgTag)
+        
+        // 更新进度
+        loadingMessage.close()
+        ElMessage({
+          message: `已处理 ${i + 1}/${base64Images.length} 张图片`,
+          type: 'info',
+          duration: 1000
+        })
+      } catch (error) {
+        console.error('处理base64图片失败:', error)
+        // 如果上传失败，保留原始base64图片
+      }
+    }
+    
+    loadingMessage.close()
+    if (base64Images.length > 0) {
+      ElMessage.success(`成功处理 ${base64Images.length} 张图片`)
+    }
+  } catch (error) {
+    loadingMessage.close()
+    console.error('处理图片时发生错误:', error)
+  }
+  
+  return processedContent
+}
+
 // 判断是否为编辑模式
 const isEdit = computed(() => !!route.params.id)
 const productId = computed(() => route.params.id as string)
@@ -177,7 +312,6 @@ const form = reactive({
   categoryName: '', // 添加 categoryName 属性
   price: 0,
   stock: 0,
-  status: 'offline' as 'online' | 'offline',
   image: '',
   description: ''
 })
@@ -208,7 +342,11 @@ const rules: FormRules = {
 const fetchCategories = async () => {
   try {
     const response = await productApi.getCategories()
-    categories.value = response
+    // 将API返回的categoryId和categoryName映射为id和name
+    categories.value = response.map(category => ({
+      id: category.categoryId,
+      name: category.categoryName
+    }))
   } catch (error) {
     console.error('获取分类失败:', error)
     ElMessage.error('获取分类失败')
@@ -221,14 +359,14 @@ const fetchProduct = async () => {
   
   try {
     const product = await productApi.getProduct(productId.value)
+    // 处理后端返回的字段映射
     Object.assign(form, {
-      title: product.title,
+      title: product.goodName || product.title,
       categoryId: product.categoryId,
       categoryName: product.categoryName, // 赋值 categoryName
       price: product.price,
       stock: product.stock,
-      status: product.status,
-      image: product.image,
+      image: product.coverUrl || product.image,
       description: product.description || ''
     })
   } catch (error) {
@@ -253,21 +391,33 @@ const handleSave = async () => {
     
     saving.value = true
     
+    // 处理富文本中的base64图片
+    const processedDescription = await processRichTextImages(form.description)
+    
     // 查找选中的分类名称并赋值给 form.categoryName
     const selectedCategory = categories.value.find(cat => cat.id === form.categoryId);
     if (selectedCategory) {
       form.categoryName = selectedCategory.name;
     }
+    
+    // 创建要提交的数据，使用处理后的描述
+    const submitData = {
+      ...form,
+      description: processedDescription
+    }
 
     if (isEdit.value) {
       // 更新商品
-      await productApi.updateProduct(productId.value, form) // 传递包含 categoryName 的 form 对象
+      await productApi.updateProduct(productId.value, submitData)
       ElMessage.success('更新成功')
     } else {
       // 创建商品
-      await productApi.createProduct(form) // 传递包含 categoryName 的 form 对象
+      await productApi.createProduct(submitData)
       ElMessage.success('创建成功')
     }
+    
+    // 更新本地表单数据
+    form.description = processedDescription
     
     goBack()
   } catch (error) {
