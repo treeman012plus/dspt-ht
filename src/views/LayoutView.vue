@@ -240,6 +240,32 @@ watch(() => route.path, () => {
   color: white;
 }
 
+/* 子菜单样式优化 */
+.sidebar-menu :deep(.el-sub-menu .el-menu-item) {
+  background-color: #263445 !important;
+  color: #bfcbd9 !important;
+  font-size: 14px;
+  padding-left: 50px !important;
+  min-height: 45px;
+}
+
+.sidebar-menu :deep(.el-sub-menu .el-menu-item:hover) {
+  background-color: #1f2d3d !important;
+  color: #409eff !important;
+}
+
+.sidebar-menu :deep(.el-sub-menu .el-menu-item.is-active) {
+  background-color: #409eff !important;
+  color: white !important;
+  font-weight: 500;
+}
+
+/* 子菜单展开时的背景 */
+.sidebar-menu :deep(.el-sub-menu.is-opened > .el-sub-menu__title) {
+  background-color: #263445;
+  color: #409eff;
+}
+
 .header {
   height: 60px;
   background-color: white;
